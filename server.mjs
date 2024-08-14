@@ -2,6 +2,8 @@ import express from "express";
 import Alexa , {SkillBuilders} from 'ask-sdk-core';
 import morgan from "morgan";
 import { ExpressAdapter }from 'ask-sdk-express-adapter'; // jo hamri skills ko add karne me help karee ga
+import axios from "axios";
+// import * as cheerio from 'cheerio';
 
 const app = express();
 
@@ -13,7 +15,7 @@ const LaunchRequestHandler = {
       return handlerInput.requestEnvelope.request.type === 'LaunchRequest';
     },
     handle(handlerInput) {
-      const speechText = 'Welcome to the  my aLexa skill ';
+      const speechText = 'Welcome to the aLexa skill (response from the webhook) ';
   
       return handlerInput.responseBuilder
         .speak(speechText)
@@ -23,20 +25,102 @@ const LaunchRequestHandler = {
     },
   };
 
-  const SayNameHandler = {
+  import { GoogleGenerativeAI } from "@google/generative-ai";
+
+  const API_KEY = 'AIzaSyBfBzPQ7iiNPjtdp0nz3oJJzqizE6t2reg';
+  // Access your API key as an environment variable
+  const genAI = new GoogleGenerativeAI(API_KEY);
+  
+  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+  
+async function generateStory(bookTitle) {
+    try {
+        const prompt = `Give me 3 reviews of the "${bookTitle}" book like a customer. Each review should include the book name, the book author name and  reviewer name with rating, and the review text. (Mix short and long reviews to make them seem like real human or customer reviews.)`;
+
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        const text = await response.text();
+
+        const formattedReviews = text.split('\n').map((review) => {
+            return `
+          
+            ${review}
+            `.trim();
+        }).join('\n\n');
+
+        return formattedReviews;
+    } catch (error) {
+        console.error("Error generating story:", error);
+        return "I'm sorry, I couldn't fetch the reviews at the moment. Please try again later.";
+    }
+}
+
+const BookReviewsHandler = {
     canHandle(handlerInput) {
         return Alexa.getRequestType(handlerInput.requestEnvelope) === 'IntentRequest'
-            && Alexa.getIntentName(handlerInput.requestEnvelope) === 'SayName';
+            && Alexa.getIntentName(handlerInput.requestEnvelope) === 'BookReviews';
     },
-    handle(handlerInput) {
-        const speakOutput = 'My name is fasih ';
+    async handle(handlerInput) {
+        const bookTitle = handlerInput.requestEnvelope.request.intent.slots.bookTitle.value;
+
+        let story;
+        try {
+            story = await generateStory(bookTitle);
+        } catch (error) {
+            console.error("Error in handling the request:", error);
+            story = "I'm sorry, I couldn't generate the reviews at the moment. Please try again later.";
+        }
+
+        const speechOutput = `
+            <speak>
+                Here are the reviews for the book titled 
+                <emphasis level="moderate">${bookTitle}</emphasis>:
+                <break time="1s"/>
+                ${story}
+            </speak>
+        `;
+
+        // Clear session attributes to avoid carrying over data
+        handlerInput.attributesManager.setSessionAttributes({});
 
         return handlerInput.responseBuilder
-            .speak(speakOutput)
-            .reprompt('add a reprompt if you want to keep the session open for the user to respond')
+            .speak(speechOutput)
+            .reprompt('Do you want to ask reviews of another book ?')
             .getResponse();
     }
 };
+
+
+const PurchaseInfoHandler = {
+    canHandle(handlerInput) {
+        return Alexa.getRequestType(handlerInput.requestEnvelope) === 'IntentRequest'
+            && Alexa.getIntentName(handlerInput.requestEnvelope) === 'PurchaseInfo';
+    },
+    handle(handlerInput) {
+        const speechOutput = `You can buy and purchase this book ${bookTitle} from amazon that is avaiable in Amazon'`;
+
+        return handlerInput.responseBuilder
+        .speak(speechOutput)
+            .reprompt('Do you want to know where you can buy or to get reviews for this book?')
+            .getResponse();
+    }
+};
+// Adding a fallback handler to manage unrecognized intents or errors
+// const FallbackHandler = {
+//     canHandle(handlerInput) {
+//         return Alexa.getRequestType(handlerInput.requestEnvelope) === 'IntentRequest';
+//     },
+//     handle(handlerInput) {
+//         const speechOutput = "I'm sorry, I didn't quite understand that. Could you please repeat?";
+//         return handlerInput.responseBuilder
+//             .speak(speechOutput)
+//             .reprompt(speechOutput)
+//             .getResponse();
+//     }
+// };
+
+  
+
 
 const ErrorHandler = {
     canHandle() {
@@ -56,7 +140,10 @@ const ErrorHandler = {
 const skillBuilder = SkillBuilders.custom()
 .addRequestHandlers(
     LaunchRequestHandler,
-    SayNameHandler
+    // SayNameHandler
+    BookReviewsHandler,
+    // FallbackHandler,
+    PurchaseInfoHandler
     
 )
 .addErrorHandlers(
