@@ -15,7 +15,7 @@ const LaunchRequestHandler = {
       return handlerInput.requestEnvelope.request.type === 'LaunchRequest';
     },
     handle(handlerInput) {
-      const speechText = 'Welcome to the aLexa skill (response from the webhook) ';
+      const speechText = 'Welcome! In our book club you can get book recommendations, purchase information and book reviews .How can I assist you today?							 ';
   
       return handlerInput.responseBuilder
         .speak(speechText)
@@ -90,18 +90,27 @@ const BookReviewsHandler = {
     }
 };
 
-
 const PurchaseInfoHandler = {
     canHandle(handlerInput) {
         return Alexa.getRequestType(handlerInput.requestEnvelope) === 'IntentRequest'
             && Alexa.getIntentName(handlerInput.requestEnvelope) === 'PurchaseInfo';
     },
     handle(handlerInput) {
-        const speechOutput = `You can buy and purchase this book ${bookTitle} from amazon that is avaiable in Amazon'`;
+        // Ensure the bookTitle slot is extracted correctly
+        const bookTitle = handlerInput.requestEnvelope.request.intent.slots.bookTitle?.value;
+
+        if (!bookTitle) {
+            return handlerInput.responseBuilder
+                .speak("I'm sorry, I couldn't find the book title. Please tell me the book title you want to purchase.")
+                .reprompt("Please provide the name of the book you want to purchase.")
+                .getResponse();
+        }
+
+        const speechOutput = `You can buy and purchase the book titled "${bookTitle}" from Amazon. It is available on Amazon's website.`;
 
         return handlerInput.responseBuilder
-        .speak(speechOutput)
-            .reprompt('Do you want to know where you can buy or to get reviews for this book?')
+            .speak(speechOutput)
+            .reprompt('Do you want to know where you can buy or get reviews for another book?')
             .getResponse();
     }
 };
