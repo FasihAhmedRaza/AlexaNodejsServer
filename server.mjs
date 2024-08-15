@@ -15,7 +15,7 @@ const LaunchRequestHandler = {
       return handlerInput.requestEnvelope.request.type === 'LaunchRequest';
     },
     handle(handlerInput) {
-      const speechText = 'Welcome! In our book club you can get book recommendations, purchase information and book reviews .How can I assist you today?							 ';
+      const speechText = 'Welcome to our Virtual Book Center where you can get book recommendations, book purchase information and book reviews. How can I assist you today? ';
   
       return handlerInput.responseBuilder
         .speak(speechText)
@@ -33,19 +33,19 @@ const LaunchRequestHandler = {
   
   const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
   
-async function generateStory(bookTitle) {
+  async function generateStory(bookTitle) {
     try {
-        const prompt = `Give me 3 reviews of the "${bookTitle}" book like a customer. Each review should include the book name, the book author name and  reviewer name with rating, and the review text. (Mix short and long reviews to make them seem like real human or customer reviews.)`;
+        const prompt = `Give me 3 reviews of the "${bookTitle}" book like a customer. Each review should include the book name, the book author name, and reviewer name with rating, and the review text. (Mix short and long reviews to make them seem like real human or customer reviews. )`;
 
         const result = await model.generateContent(prompt);
         const response = await result.response;
         const text = await response.text();
 
-        const formattedReviews = text.split('\n').map((review) => {
-            return `
-          
-            ${review}
-            `.trim();
+        // Remove hashtags from the reviews
+        const cleanedText = text.replace(/##/g, ' ').replace(/\*\*/g, ' ');
+        // Format the reviews
+        const formattedReviews = cleanedText.split('\n').map((review) => {
+            return `${review}`.trim();
         }).join('\n\n');
 
         return formattedReviews;
@@ -55,6 +55,39 @@ async function generateStory(bookTitle) {
     }
 }
 
+
+const BookQueryHandler = {
+    canHandle(handlerInput) {
+        return Alexa.getRequestType(handlerInput.requestEnvelope) === 'IntentRequest'
+            && Alexa.getIntentName(handlerInput.requestEnvelope) === 'BookQuery';
+    },
+    handle(handlerInput) {
+        const bookTitle = handlerInput.requestEnvelope.request.intent.slots.bookTitle.value;
+
+        if (!bookTitle) {
+            return handlerInput.responseBuilder
+                .speak("Please tell me the name of the book you want to ask about.")
+                .reprompt("What is the name of the book?")
+                .getResponse();
+        }
+
+        const speechOutput = `
+            You've mentioned the book titled 
+            <emphasis level="moderate">${bookTitle}</emphasis>. 
+            Would you like to hear reviews, get purchase information, or get recommendations?
+        `;
+
+        const sessionAttributes = handlerInput.attributesManager.getSessionAttributes();
+        sessionAttributes.bookTitle = bookTitle;
+        handlerInput.attributesManager.setSessionAttributes(sessionAttributes);
+
+        return handlerInput.responseBuilder
+            .speak(speechOutput)
+            .reprompt("Please tell me if you want reviews, purchase information, or recommendations.")
+            .getResponse();
+    }
+};
+
 const BookReviewsHandler = {
     canHandle(handlerInput) {
         return Alexa.getRequestType(handlerInput.requestEnvelope) === 'IntentRequest'
@@ -63,32 +96,30 @@ const BookReviewsHandler = {
     async handle(handlerInput) {
         const bookTitle = handlerInput.requestEnvelope.request.intent.slots.bookTitle.value;
 
-        let story;
+        let reviews;
         try {
-            story = await generateStory(bookTitle);
+            reviews = await generateStory(bookTitle); // Replace with your reviews fetching logic
         } catch (error) {
-            console.error("Error in handling the request:", error);
-            story = "I'm sorry, I couldn't generate the reviews at the moment. Please try again later.";
+            console.error("Error fetching reviews:", error);
+            reviews = "I'm sorry, I couldn't get the reviews at the moment. Please try again later.";
         }
 
         const speechOutput = `
             <speak>
                 Here are the reviews for the book titled 
                 <emphasis level="moderate">${bookTitle}</emphasis>:
-                <break time="1s"/>
-                ${story}
+                
+                ${reviews}
             </speak>
         `;
 
-        // Clear session attributes to avoid carrying over data
-        handlerInput.attributesManager.setSessionAttributes({});
-
         return handlerInput.responseBuilder
             .speak(speechOutput)
-            .reprompt('Do you want to ask reviews of another book ?')
+            .reprompt('Do you want to ask about another book?')
             .getResponse();
     }
 };
+
 
 const PurchaseInfoHandler = {
     canHandle(handlerInput) {
@@ -96,17 +127,17 @@ const PurchaseInfoHandler = {
             && Alexa.getIntentName(handlerInput.requestEnvelope) === 'PurchaseInfo';
     },
     handle(handlerInput) {
-        // Ensure the bookTitle slot is extracted correctly
         const bookTitle = handlerInput.requestEnvelope.request.intent.slots.bookTitle?.value;
 
+        // If bookTitle is not provided, ask the user for the book title
         if (!bookTitle) {
             return handlerInput.responseBuilder
-                .speak("I'm sorry, I couldn't find the book title. Please tell me the book title you want to purchase.")
-                .reprompt("Please provide the name of the book you want to purchase.")
+                .speak("Which book would you like to get purchase information for?")
+                .reprompt("Please tell me the book title you want to get purchase information for.")
                 .getResponse();
         }
 
-        const speechOutput = `You can buy and purchase the book titled "${bookTitle}" from Amazon. It is available on Amazon's website.`;
+        const speechOutput = `You can buy the book titled "${bookTitle}" from Amazon. It is available on Amazon's website.`;
 
         return handlerInput.responseBuilder
             .speak(speechOutput)
@@ -114,6 +145,8 @@ const PurchaseInfoHandler = {
             .getResponse();
     }
 };
+
+
 // Adding a fallback handler to manage unrecognized intents or errors
 // const FallbackHandler = {
 //     canHandle(handlerInput) {
@@ -128,7 +161,45 @@ const PurchaseInfoHandler = {
 //     }
 // };
 
-  
+const RecommendationsHandler = {
+    canHandle(handlerInput) {
+        return Alexa.getRequestType(handlerInput.requestEnvelope) === 'IntentRequest'
+            && Alexa.getIntentName(handlerInput.requestEnvelope) === 'Recommendations';
+    },
+    async handle(handlerInput) {
+        const sessionAttributes = handlerInput.attributesManager.getSessionAttributes();
+        const bookTitle = sessionAttributes.bookTitle;
+
+        if (!bookTitle) {
+            return handlerInput.responseBuilder
+                .speak("I need a book title to provide recommendations. Could you please provide the book title again?")
+                .reprompt("Please tell me the name of the book.")
+                .getResponse();
+        }
+
+        let recommendations;
+        try {
+            recommendations = await getRecommendations(bookTitle); // Replace with your recommendations fetching logic
+        } catch (error) {
+            console.error("Error fetching recommendations:", error);
+            recommendations = "I'm sorry, I couldn't get the recommendations at the moment. Please try again later.";
+        }
+
+        const speechOutput = `
+            Based on the book titled 
+            <emphasis level="moderate">${bookTitle}</emphasis>, 
+            I recommend the following books:
+            <break time="1s"/>
+            ${recommendations}
+        `;
+
+        return handlerInput.responseBuilder
+            .speak(speechOutput)
+            .reprompt('Do you want to ask about another book?')
+            .getResponse();
+    }
+};
+
 
 
 const ErrorHandler = {
@@ -152,7 +223,9 @@ const skillBuilder = SkillBuilders.custom()
     // SayNameHandler
     BookReviewsHandler,
     // FallbackHandler,
-    PurchaseInfoHandler
+    PurchaseInfoHandler,
+    BookQueryHandler,
+    RecommendationsHandler
     
 )
 .addErrorHandlers(
