@@ -4,6 +4,7 @@ import morgan from "morgan";
 import { ExpressAdapter }from 'ask-sdk-express-adapter'; // jo hamri skills ko add karne me help karee ga
 import axios from "axios";
 // import * as cheerio from 'cheerio';
+const Gooogle_API_KEY = 'AIzaSyC8F2eVsbZaawLxkGr5FiAaxEDB-p44U3A';
 
 const app = express();
 
@@ -120,16 +121,25 @@ const BookReviewsHandler = {
     }
 };
 
+async function fetchAuthor(bookTitle) {
+    try {
+        const response = await axios.get(`https://www.googleapis.com/books/v1/volumes?q=intitle:${encodeURIComponent(bookTitle)}&key=${Gooogle_API_KEY}`);
+        const book = response.data.items[0];
+        return book.volumeInfo.authors[0]; // Assume the first author is the main author
+    } catch (error) {
+        console.error("Error fetching author from Google Books API:", error);
+        return null;
+    }
+}
 
 const PurchaseInfoHandler = {
     canHandle(handlerInput) {
         return Alexa.getRequestType(handlerInput.requestEnvelope) === 'IntentRequest'
             && Alexa.getIntentName(handlerInput.requestEnvelope) === 'PurchaseInfo';
     },
-    handle(handlerInput) {
+    async handle(handlerInput) {
         const bookTitle = handlerInput.requestEnvelope.request.intent.slots.bookTitle?.value;
 
-        // If bookTitle is not provided, ask the user for the book title
         if (!bookTitle) {
             return handlerInput.responseBuilder
                 .speak("Which book would you like to get purchase information for?")
@@ -137,7 +147,36 @@ const PurchaseInfoHandler = {
                 .getResponse();
         }
 
-        const speechOutput = `You can buy the book titled "${bookTitle}" from Amazon. It is available on Amazon's website.`;
+        // Fetch the author name
+        const authorName = await fetchAuthor(bookTitle);
+
+        if (!authorName) {
+            return handlerInput.responseBuilder
+                .speak("I'm sorry, I couldn't find the author for the book you mentioned. Please try again with a different title.")
+                .getResponse();
+        }
+
+        // Fetch approximate price range from Gemini API
+        let priceRange;
+        try {
+            const prompt = `Provide an approximate price range for the book titled "${bookTitle}" written by ${authorName} in USD. Please ensure the price range is clearly mentioned in the response.`;
+            const result = await model.generateContent(prompt);
+            const response = await result.response;
+            const text = await response.text();
+            
+            // Log the full response for troubleshooting
+            console.log("Full response from Gemini API:", text);
+            
+            // Adjusting extraction logic based on the full response
+            const priceMatch = text.match(/(?:\$|USD)\s*[\d,.]+\s*(?:to|-)\s*(?:\$|USD)\s*[\d,.]+/i) || text.match(/(?:\$|USD)\s*[\d,.]+/i);
+            priceRange = priceMatch ? priceMatch[0] : "unavailable";
+
+        } catch (error) {
+            console.error("Error fetching price range from Gemini API:", error);
+            priceRange = "unavailable";
+        }
+
+        const speechOutput = `You can buy the book titled "${bookTitle}" by ${authorName} from Amazon. It is available on Amazon's website for an approximate price range of ${priceRange}.`;
 
         return handlerInput.responseBuilder
             .speak(speechOutput)
@@ -145,6 +184,8 @@ const PurchaseInfoHandler = {
             .getResponse();
     }
 };
+
+
 
 
 // Adding a fallback handler to manage unrecognized intents or errors
@@ -163,42 +204,68 @@ const PurchaseInfoHandler = {
 
 const RecommendationsHandler = {
     canHandle(handlerInput) {
-        return Alexa.getRequestType(handlerInput.requestEnvelope) === 'IntentRequest'
+        console.log("Checking if GenreRecommendationHandler can handle the request...");
+        const canHandle = Alexa.getRequestType(handlerInput.requestEnvelope) === 'IntentRequest'
             && Alexa.getIntentName(handlerInput.requestEnvelope) === 'Recommendations';
+        console.log("Can Handle:", canHandle);
+        return canHandle;
     },
     async handle(handlerInput) {
-        const sessionAttributes = handlerInput.attributesManager.getSessionAttributes();
-        const bookTitle = sessionAttributes.bookTitle;
+        console.log("GenreRecommendationHandler is handling the request...");
+        const genre = handlerInput.requestEnvelope.request.intent.slots.genre.value;
+        console.log("Genre received:", genre);
 
-        if (!bookTitle) {
+        if (!genre) {
+            console.log("No genre provided.");
             return handlerInput.responseBuilder
-                .speak("I need a book title to provide recommendations. Could you please provide the book title again?")
-                .reprompt("Please tell me the name of the book.")
+                .speak("Please specify a genre for the book recommendations.")
+                .reprompt("What genre would you like to get book recommendations for?")
                 .getResponse();
         }
 
         let recommendations;
         try {
-            recommendations = await getRecommendations(bookTitle); // Replace with your recommendations fetching logic
+            console.log("Fetching recommendations for genre:", genre);
+            recommendations = await getGenreRecommendations(genre);
+            console.log("Recommendations fetched:", recommendations);
         } catch (error) {
             console.error("Error fetching recommendations:", error);
             recommendations = "I'm sorry, I couldn't get the recommendations at the moment. Please try again later.";
         }
 
-        const speechOutput = `
-            Based on the book titled 
-            <emphasis level="moderate">${bookTitle}</emphasis>, 
-            I recommend the following books:
-            <break time="1s"/>
-            ${recommendations}
-        `;
+        const speechOutput = recommendations 
+            ? `Based on your interest in <emphasis level="moderate">${genre}</emphasis>, here are some top-rated books: ${recommendations}`
+            : "I couldn't find any recommendations for that genre. Please try a different genre.";
+
+        console.log("Speech Output:", speechOutput);
 
         return handlerInput.responseBuilder
             .speak(speechOutput)
-            .reprompt('Do you want to ask about another book?')
+            .reprompt('Would you like recommendations for another genre?')
             .getResponse();
     }
 };
+
+async function getGenreRecommendations(genre) {
+    console.log("Making API call to fetch books for genre:", genre);
+    try {
+        const response = await axios.get(`https://www.googleapis.com/books/v1/volumes?q=subject:${encodeURIComponent(genre)}&key=${Gooogle_API_KEY}`);
+
+        console.log("API Response:", response.data);
+        const books = response.data.items ? response.data.items.slice(0, 3) : [];
+        console.log("Books fetched from API:", books);
+
+        if (books.length === 0) {
+            return null;
+        }
+
+        return books.map(book => `${book.volumeInfo.title} by ${book.volumeInfo.authors.join(', ')}`).join('<break time="0.5s"/>');
+    } catch (error) {
+        console.error("Error in API call:", error);
+        throw error;
+    }
+}
+
 
 
 
