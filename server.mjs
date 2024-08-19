@@ -67,7 +67,7 @@ const BookQueryHandler = {
 
         if (!bookTitle) {
             return handlerInput.responseBuilder
-                .speak("Please tell me the name of the book you want to ask about.")
+                .speak("Got it! Which book would you like to hear reviews for?")
                 .reprompt("What is the name of the book?")
                 .getResponse();
         }
@@ -95,11 +95,22 @@ const BookReviewsHandler = {
             && Alexa.getIntentName(handlerInput.requestEnvelope) === 'BookReviews';
     },
     async handle(handlerInput) {
-        const bookTitle = handlerInput.requestEnvelope.request.intent.slots.bookTitle.value;
+        const bookTitle = handlerInput.requestEnvelope.request.intent.slots.bookTitle?.value;
+
+        if (!bookTitle) {
+            return handlerInput.responseBuilder
+                .speak("I'm sorry, I didn't catch the book title. Could you please tell me the title again?")
+                .reprompt("Please tell me the book title you'd like information on.")
+                .getResponse();
+        }
 
         let reviews;
         try {
             reviews = await generateStory(bookTitle); // Replace with your reviews fetching logic
+
+            if (!reviews || reviews.trim() === "") {
+                reviews = "It seems that there are no reviews available for this book at the moment.";
+            }
         } catch (error) {
             console.error("Error fetching reviews:", error);
             reviews = "I'm sorry, I couldn't get the reviews at the moment. Please try again later.";
@@ -120,6 +131,7 @@ const BookReviewsHandler = {
             .getResponse();
     }
 };
+
 
 async function fetchAuthor(bookTitle) {
     try {
@@ -176,7 +188,9 @@ const PurchaseInfoHandler = {
             priceRange = "unavailable";
         }
 
-        const speechOutput = `You can buy the book titled "${bookTitle}" by ${authorName} from Amazon. It is available on Amazon's website for an approximate price range of ${priceRange}.`;
+        const speechOutput = priceRange === "unavailable" 
+            ? "I'm sorry, but the price information for this book is currently unavailable. Let me know if there's another book you'd like to get purchase information for."
+            : `You can buy the book titled "${bookTitle}" by ${authorName} from Amazon. It is available on Amazon's website for an approximate price range of ${priceRange}.`;
 
         return handlerInput.responseBuilder
             .speak(speechOutput)
@@ -187,47 +201,25 @@ const PurchaseInfoHandler = {
 
 
 
-
-// Adding a fallback handler to manage unrecognized intents or errors
-// const FallbackHandler = {
-//     canHandle(handlerInput) {
-//         return Alexa.getRequestType(handlerInput.requestEnvelope) === 'IntentRequest';
-//     },
-//     handle(handlerInput) {
-//         const speechOutput = "I'm sorry, I didn't quite understand that. Could you please repeat?";
-//         return handlerInput.responseBuilder
-//             .speak(speechOutput)
-//             .reprompt(speechOutput)
-//             .getResponse();
-//     }
-// };
-
 const RecommendationsHandler = {
     canHandle(handlerInput) {
-        console.log("Checking if GenreRecommendationHandler can handle the request...");
-        const canHandle = Alexa.getRequestType(handlerInput.requestEnvelope) === 'IntentRequest'
+        return Alexa.getRequestType(handlerInput.requestEnvelope) === 'IntentRequest'
             && Alexa.getIntentName(handlerInput.requestEnvelope) === 'Recommendations';
-        console.log("Can Handle:", canHandle);
-        return canHandle;
     },
     async handle(handlerInput) {
-        console.log("GenreRecommendationHandler is handling the request...");
-        const genre = handlerInput.requestEnvelope.request.intent.slots.genre.value;
-        console.log("Genre received:", genre);
+        const genre = handlerInput.requestEnvelope.request.intent.slots.genre?.value;
 
         if (!genre) {
-            console.log("No genre provided.");
+            // If the user didn't provide a genre, prompt them to do so
             return handlerInput.responseBuilder
-                .speak("Please specify a genre for the book recommendations.")
+                .speak("Sure! What type of book are you in the mood for? Just let me know the genre, and I’ll find something great for you!?")
                 .reprompt("What genre would you like to get book recommendations for?")
                 .getResponse();
         }
 
         let recommendations;
         try {
-            console.log("Fetching recommendations for genre:", genre);
             recommendations = await getGenreRecommendations(genre);
-            console.log("Recommendations fetched:", recommendations);
         } catch (error) {
             console.error("Error fetching recommendations:", error);
             recommendations = "I'm sorry, I couldn't get the recommendations at the moment. Please try again later.";
@@ -236,8 +228,6 @@ const RecommendationsHandler = {
         const speechOutput = recommendations 
             ? `Based on your interest in <emphasis level="moderate">${genre}</emphasis>, here are some top-rated books: ${recommendations}`
             : "I couldn't find any recommendations for that genre. Please try a different genre.";
-
-        console.log("Speech Output:", speechOutput);
 
         return handlerInput.responseBuilder
             .speak(speechOutput)
@@ -268,6 +258,20 @@ async function getGenreRecommendations(genre) {
 
 
 
+const CloseVirtualBookCenterIntentHandler = {
+    canHandle(handlerInput) {
+        return Alexa.getRequestType(handlerInput.requestEnvelope) === 'IntentRequest'
+            && Alexa.getIntentName(handlerInput.requestEnvelope) === 'CloseVirtualBookCenterIntent';
+    },
+    handle(handlerInput) {
+        const speechText = 'Alright, closing the Virtual Book Center. Come back soon for more book discoveries!';
+
+        return handlerInput.responseBuilder
+            .speak(speechText)
+            .withShouldEndSession(true) // This ends the session
+            .getResponse();
+    }
+};
 
 const ErrorHandler = {
     canHandle() {
@@ -283,21 +287,36 @@ const ErrorHandler = {
             .getResponse();
     }
 };
+const CancelAndStopIntentHandler = {
+    canHandle(handlerInput) {
+        return Alexa.getRequestType(handlerInput.requestEnvelope) === 'IntentRequest'
+            && (Alexa.getIntentName(handlerInput.requestEnvelope) === 'AMAZON.CancelIntent'
+                || Alexa.getIntentName(handlerInput.requestEnvelope) === 'AMAZON.StopIntent');
+    },
+    handle(handlerInput) {
+        const speakOutput = 'Alright, closing the Virtual Book Center. Come back soon for more book discoveries!';
+
+        return handlerInput.responseBuilder
+            .speak(speakOutput)
+            .getResponse();
+    }
+};
 
 const skillBuilder = SkillBuilders.custom()
-.addRequestHandlers(
-    LaunchRequestHandler,
-    // SayNameHandler
-    BookReviewsHandler,
-    // FallbackHandler,
-    PurchaseInfoHandler,
-    BookQueryHandler,
-    RecommendationsHandler
-    
-)
-.addErrorHandlers(
-    ErrorHandler
-)
+    .addRequestHandlers(
+        LaunchRequestHandler,
+        CancelAndStopIntentHandler,
+        BookReviewsHandler,
+        PurchaseInfoHandler,
+        BookQueryHandler,
+        RecommendationsHandler,
+        CloseVirtualBookCenterIntentHandler // This is correctly added
+    )
+    .addErrorHandlers(
+        ErrorHandler
+    )
+
+
 
 const skill = skillBuilder.create();
 
