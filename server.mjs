@@ -99,7 +99,7 @@ const BookReviewsHandler = {
 
         if (!bookTitle) {
             return handlerInput.responseBuilder
-                .speak("I'm sorry, I didn't catch the book title. Could you please tell me the title again?")
+                .speak("Got it! Which book would you like to hear reviews for?”")
                 .reprompt("Please tell me the book title you'd like information on.")
                 .getResponse();
         }
@@ -143,20 +143,30 @@ async function fetchAuthor(bookTitle) {
         return null;
     }
 }
-
 const PurchaseInfoHandler = {
     canHandle(handlerInput) {
         return Alexa.getRequestType(handlerInput.requestEnvelope) === 'IntentRequest'
             && Alexa.getIntentName(handlerInput.requestEnvelope) === 'PurchaseInfo';
     },
     async handle(handlerInput) {
-        const bookTitle = handlerInput.requestEnvelope.request.intent.slots.bookTitle?.value;
+        const sessionAttributes = handlerInput.attributesManager.getSessionAttributes();
+        let bookTitle = handlerInput.requestEnvelope.request.intent.slots.bookTitle?.value;
 
+        // Check if book title is provided or not
         if (!bookTitle) {
+            sessionAttributes.awaitingBookTitle = true;
+            handlerInput.attributesManager.setSessionAttributes(sessionAttributes);
+
             return handlerInput.responseBuilder
                 .speak("Which book would you like to get purchase information for?")
                 .reprompt("Please tell me the book title you want to get purchase information for.")
                 .getResponse();
+        }
+
+        // If book title was previously missing, but provided now, reset awaiting flag
+        if (sessionAttributes.awaitingBookTitle) {
+            delete sessionAttributes.awaitingBookTitle;
+            handlerInput.attributesManager.setSessionAttributes(sessionAttributes);
         }
 
         // Fetch the author name
@@ -165,6 +175,7 @@ const PurchaseInfoHandler = {
         if (!authorName) {
             return handlerInput.responseBuilder
                 .speak("I'm sorry, I couldn't find the author for the book you mentioned. Please try again with a different title.")
+                .reprompt("Please tell me the book title you want to get purchase information for.")
                 .getResponse();
         }
 
@@ -178,19 +189,25 @@ const PurchaseInfoHandler = {
             
             // Log the full response for troubleshooting
             console.log("Full response from Gemini API:", text);
-            
+
             // Adjusting extraction logic based on the full response
             const priceMatch = text.match(/(?:\$|USD)\s*[\d,.]+\s*(?:to|-)\s*(?:\$|USD)\s*[\d,.]+/i) || text.match(/(?:\$|USD)\s*[\d,.]+/i);
-            priceRange = priceMatch ? priceMatch[0] : "unavailable";
+            priceRange = priceMatch ? priceMatch[0] : null;
 
         } catch (error) {
             console.error("Error fetching price range from Gemini API:", error);
-            priceRange = "unavailable";
+            priceRange = null;
         }
 
-        const speechOutput = priceRange === "unavailable" 
-            ? "I'm sorry, but the price information for this book is currently unavailable. Let me know if there's another book you'd like to get purchase information for."
-            : `You can buy the book titled "${bookTitle}" by ${authorName} from Amazon. It is available on Amazon's website for an approximate price range of ${priceRange}.`;
+        // Handle unavailable price information or book not in sale
+        if (!priceRange) {
+            return handlerInput.responseBuilder
+                .speak("I'm sorry, but the price information for this book is currently unavailable. Let me know if there's another book you'd like to get purchase information for.")
+                .reprompt("Please tell me the book title you want to get purchase information for.")
+                .getResponse();
+        }
+
+        const speechOutput = `You can buy the book titled "${bookTitle}" by ${authorName} from Amazon. It is available on Amazon's website for an approximate price range of ${priceRange}.`;
 
         return handlerInput.responseBuilder
             .speak(speechOutput)
@@ -198,6 +215,8 @@ const PurchaseInfoHandler = {
             .getResponse();
     }
 };
+
+
 
 
 
