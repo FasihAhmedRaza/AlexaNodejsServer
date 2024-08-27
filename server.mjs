@@ -3,6 +3,9 @@ import Alexa , {SkillBuilders} from 'ask-sdk-core';
 import morgan from "morgan";
 import { ExpressAdapter }from 'ask-sdk-express-adapter'; // jo hamri skills ko add karne me help karee ga
 import axios from "axios";
+import pkg from 'ask-sdk-model';
+const { services: { monetization: { MonetizationServiceClient } } } = pkg;
+
 // import * as cheerio from 'cheerio';
 const Gooogle_API_KEY = 'AIzaSyC8F2eVsbZaawLxkGr5FiAaxEDB-p44U3A';
 
@@ -275,12 +278,10 @@ async function getGenreRecommendations(genre) {
     }
 }
 
-
-
-const CloseVirtualBookCenterIntentHandler = {
+const ExitSkillIntentHandler = {
     canHandle(handlerInput) {
         return Alexa.getRequestType(handlerInput.requestEnvelope) === 'IntentRequest'
-            && Alexa.getIntentName(handlerInput.requestEnvelope) === 'CloseVirtualBookCenterIntent';
+            && Alexa.getIntentName(handlerInput.requestEnvelope) === 'ExitSkillIntent';
     },
     handle(handlerInput) {
         const speechText = 'Alright, closing the Virtual Book Center. Come back soon for more book discoveries!';
@@ -321,6 +322,92 @@ const CancelAndStopIntentHandler = {
     }
 };
 
+// Function to get in-skill products and handle errors
+async function getSubscriptionStatus(handlerInput) {
+  const locale = handlerInput.requestEnvelope.request.locale;
+  const monetizationServiceClient = handlerInput.serviceClientFactory.getMonetizationServiceClient();
+
+  try {
+    // Fetch in-skill products
+    const result = await monetizationServiceClient.getInSkillProducts(locale);
+
+    // Process the subscription information (e.g., check for active subscriptions)
+    const inSkillProducts = result.inSkillProducts;
+    const activeSubscriptions = inSkillProducts.filter(product => product.entitled === 'ENTITLED');
+
+    // Logging for debugging
+    console.log('Active Subscriptions:', activeSubscriptions);
+
+    // Return the active subscriptions or any other required information
+    return activeSubscriptions;
+
+  } catch (error) {
+    console.error('Error checking subscriptions:', error);
+
+    // Check if error is a ServiceError and if it is an Internal Server Error
+    if (error instanceof ServiceError && error.statusCode === 500) {
+      console.error('Internal Server Error occurred. Retrying...');
+
+      // Implement a retry mechanism with a short delay
+      return new Promise((resolve, reject) => {
+        setTimeout(async () => {
+          try {
+            const retryResult = await monetizationServiceClient.getInSkillProducts(locale);
+            const retryInSkillProducts = retryResult.inSkillProducts;
+            const retryActiveSubscriptions = retryInSkillProducts.filter(product => product.entitled === 'ENTITLED');
+
+            // Log the retry result
+            console.log('Retry Active Subscriptions:', retryActiveSubscriptions);
+
+            resolve(retryActiveSubscriptions);
+          } catch (retryError) {
+            console.error('Retry failed:', retryError);
+            reject(retryError);
+          }
+        }, 1000); // Retry after 1 second
+      });
+
+    } else {
+      // Handle other types of errors or unexpected conditions
+      console.error('Unexpected error checking subscriptions:', error);
+      throw error;  // Re-throw the error for further handling if necessary
+    }
+  }
+}
+
+
+// Example of using the function in a handler
+const CheckSubscriptionHandler = {
+  canHandle(handlerInput) {
+      return Alexa.getRequestType(handlerInput.requestEnvelope) === 'IntentRequest'
+      && Alexa.getIntentName(handlerInput.requestEnvelope) === 'CheckSubscription';
+  },
+  async handle(handlerInput) {
+    try {
+      const activeSubscriptions = await getSubscriptionStatus(handlerInput);
+      
+      let speechText;
+      if (activeSubscriptions.length > 0) {
+        speechText = `You have the following active subscriptions: ${activeSubscriptions.map(sub => sub.name).join(', ')}.`;
+      } else {
+        speechText = 'You do not have any active subscriptions.';
+      }
+
+      return handlerInput.responseBuilder
+        .speak(speechText)
+        .getResponse();
+
+    } catch (error) {
+      // Handle the error gracefully and provide a user-friendly response
+      console.error('Error in LaunchRequestHandler:', error);
+      return handlerInput.responseBuilder
+        .speak('Sorry, there was a problem checking your subscriptions. Please try again later.')
+        .getResponse();
+    }
+  },
+};
+
+
 const skillBuilder = SkillBuilders.custom()
     .addRequestHandlers(
         LaunchRequestHandler,
@@ -329,7 +416,8 @@ const skillBuilder = SkillBuilders.custom()
         PurchaseInfoHandler,
         BookQueryHandler,
         RecommendationsHandler,
-        CloseVirtualBookCenterIntentHandler // This is correctly added
+        ExitSkillIntentHandler ,
+        CheckSubscriptionHandler
     )
     .addErrorHandlers(
         ErrorHandler
