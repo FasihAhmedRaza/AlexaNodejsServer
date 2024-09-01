@@ -222,7 +222,6 @@ const PurchaseInfoHandler = {
 
 
 
-
 const RecommendationsHandler = {
     canHandle(handlerInput) {
         return Alexa.getRequestType(handlerInput.requestEnvelope) === 'IntentRequest'
@@ -264,19 +263,36 @@ async function getGenreRecommendations(genre) {
         const response = await axios.get(`https://www.googleapis.com/books/v1/volumes?q=subject:${encodeURIComponent(genre)}&key=${Gooogle_API_KEY}`);
 
         console.log("API Response:", response.data);
-        const books = response.data.items ? response.data.items.slice(0, 3) : [];
+        let books = response.data.items ? response.data.items : [];
         console.log("Books fetched from API:", books);
 
         if (books.length === 0) {
             return null;
         }
 
-        return books.map(book => `${book.volumeInfo.title} by ${book.volumeInfo.authors.join(', ')}`).join('<break time="0.5s"/>');
+        // Shuffle books to ensure randomness
+        books = shuffleArray(books);
+
+        // Select a random subset of books
+        const selectedBooks = books.slice(0, 3);
+
+        return selectedBooks.map(book => `${book.volumeInfo.title} by ${book.volumeInfo.authors.join(', ')}`).join('<break time="0.5s"/>');
     } catch (error) {
         console.error("Error in API call:", error);
         throw error;
     }
 }
+
+// Utility function to shuffle an array
+function shuffleArray(array) {
+    for (let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [array[i], array[j]] = [array[j], array[i]];
+    }
+    return array;
+}
+
+
 
 const ExitSkillIntentHandler = {
     canHandle(handlerInput) {
