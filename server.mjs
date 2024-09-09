@@ -14,6 +14,134 @@ const app = express();
 app.use(morgan('dev'))
 const PORT = process.env.PORT || 3000;
 
+// SKILL PURCHASE CODE START 
+const InSkillProductHandler = {
+    canHandle(handlerInput) {
+        return Alexa.getRequestType(handlerInput.requestEnvelope) === 'IntentRequest'
+            && Alexa.getIntentName(handlerInput.requestEnvelope) === 'ProductInfoIntent';
+    },
+    async handle(handlerInput) {
+        const locale = Alexa.getLocale(handlerInput.requestEnvelope);
+        const msClient = new MonetizationServiceClient();
+        let productResponse;
+
+        try {
+            productResponse = await msClient.getInSkillProducts(handlerInput.serviceClientFactory.getMonetizationServiceClient(), locale);
+        } catch (error) {
+            console.error('Error retrieving product information', error);
+            return handlerInput.responseBuilder
+                .speak('There was an error retrieving the product information. Please try again later.')
+                .getResponse();
+        }
+
+        const entitledProducts = productResponse.inSkillProducts.filter(record => record.entitled === 'ENTITLED');
+        const entitledProductNames = entitledProducts.map(product => product.name).join(', ');
+
+        if (entitledProducts.length > 0) {
+            return handlerInput.responseBuilder
+                .speak(`You currently have access to the following products: ${entitledProductNames}. Would you like to learn more about other products or purchase a subscription?`)
+                .reprompt('Would you like to learn more about other products or purchase a subscription?')
+                .getResponse();
+        } else {
+            return handlerInput.responseBuilder
+                .speak('It looks like you do not have any active subscriptions. Would you like to learn about the subscription options available?')
+                .reprompt('Would you like to learn about the subscription options available?')
+                .getResponse();
+        }
+    }
+};
+
+const BuySubscriptionHandler = {
+    canHandle(handlerInput) {
+        return Alexa.getRequestType(handlerInput.requestEnvelope) === 'IntentRequest'
+            && Alexa.getIntentName(handlerInput.requestEnvelope) === 'BuySubscriptionIntent';
+    },
+    async handle(handlerInput) {
+        const locale = Alexa.getLocale(handlerInput.requestEnvelope);
+        const msClient = new MonetizationServiceClient();
+        let productResponse;
+
+        try {
+            productResponse = await msClient.getInSkillProducts(handlerInput.serviceClientFactory.getMonetizationServiceClient(), locale);
+        } catch (error) {
+            console.error('Error retrieving product information', error);
+            return handlerInput.responseBuilder
+                .speak('There was an error retrieving the product information. Please try again later.')
+                .getResponse();
+        }
+
+        const subscriptionProduct = productResponse.inSkillProducts.find(record => record.referenceName === 'YOUR_SUBSCRIPTION_PRODUCT_REFERENCE_NAME');
+
+        if (subscriptionProduct) {
+            return handlerInput.responseBuilder
+                .addDirective({
+                    type: 'Connections.SendRequest',
+                    name: 'Buy',
+                    payload: {
+                        InSkillProduct: {
+                            productId: subscriptionProduct.productId
+                        }
+                    },
+                    token: 'correlationToken'
+                })
+                .getResponse();
+        }
+
+        return handlerInput.responseBuilder
+            .speak('There are no available subscriptions at the moment. Please try again later.')
+            .getResponse();
+    }
+};
+
+const CancelSubscriptionHandler = {
+    canHandle(handlerInput) {
+        return Alexa.getRequestType(handlerInput.requestEnvelope) === 'IntentRequest'
+            && Alexa.getIntentName(handlerInput.requestEnvelope) === 'CancelSubscriptionIntent';
+    },
+    async handle(handlerInput) {
+        const locale = Alexa.getLocale(handlerInput.requestEnvelope);
+        const msClient = new MonetizationServiceClient();
+        let productResponse;
+
+        try {
+            productResponse = await msClient.getInSkillProducts(handlerInput.serviceClientFactory.getMonetizationServiceClient(), locale);
+        } catch (error) {
+            console.error('Error retrieving product information', error);
+            return handlerInput.responseBuilder
+                .speak('There was an error retrieving the product information. Please try again later.')
+                .getResponse();
+        }
+
+        const subscriptionProduct = productResponse.inSkillProducts.find(record => record.referenceName === 'YOUR_SUBSCRIPTION_PRODUCT_REFERENCE_NAME');
+
+        if (subscriptionProduct) {
+            return handlerInput.responseBuilder
+                .addDirective({
+                    type: 'Connections.SendRequest',
+                    name: 'Cancel',
+                    payload: {
+                        InSkillProduct: {
+                            productId: subscriptionProduct.productId
+                        }
+                    },
+                    token: 'correlationToken'
+                })
+                .getResponse();
+        }
+
+        return handlerInput.responseBuilder
+            .speak('There are no subscriptions to cancel at the moment.')
+            .getResponse();
+    }
+};
+
+
+
+// SKILL PURCHASE CODE END
+
+
+
+
 const LaunchRequestHandler = {
     canHandle(handlerInput) {
       return handlerInput.requestEnvelope.request.type === 'LaunchRequest';
@@ -391,6 +519,19 @@ async function getSubscriptionStatus(handlerInput) {
   }
 }
 
+const HelloWorldIntentHandler = {
+    canHandle(handlerInput) {
+        return Alexa.getRequestType(handlerInput.requestEnvelope) === 'IntentRequest'
+            && Alexa.getIntentName(handlerInput.requestEnvelope) === 'HelloWorldIntent';
+    },
+    handle(handlerInput) {
+        const speakOutput = 'Hello World!';
+
+        return handlerInput.responseBuilder
+            .speak(speakOutput)
+            .getResponse();
+    }
+};
 
 // Example of using the function in a handler
 const CheckSubscriptionHandler = {
@@ -433,7 +574,12 @@ const skillBuilder = SkillBuilders.custom()
         BookQueryHandler,
         RecommendationsHandler,
         ExitSkillIntentHandler ,
-        CheckSubscriptionHandler
+        CheckSubscriptionHandler,
+        InSkillProductHandler,
+        BuySubscriptionHandler,
+        CancelSubscriptionHandler,
+        HelloWorldIntentHandler
+
     )
     .addErrorHandlers(
         ErrorHandler
